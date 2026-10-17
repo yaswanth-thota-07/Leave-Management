@@ -10,17 +10,16 @@ const { hashBase64DataUrl, findReuse } = require('../utils/duplicateCheck');
 // even if someone calls the API directly instead of going through the UI.
 const STAFF_ROLES = new Set(['ADMIN', 'CLASS_TEACHER', 'WARDEN', 'HOD', 'JD', 'DIRECTOR']);
 
-// Matches this app's existing (client-trusted) auth model — see
-// leaveController.decideLeave, which authorizes the same way via actorId.
-async function requireViewer(req, res) {
+// Matches this app's existing auth model — AI recommendation is restricted to admins and authorities.
+async function requireAdminViewer(req, res) {
   const viewerId = req.body?.viewerId || req.query?.viewerId;
   if (!viewerId) {
     res.status(400).json({ error: 'viewerId is required.' });
     return null;
   }
   const viewer = await User.findOne({ id: viewerId });
-  if (!viewer) {
-    res.status(401).json({ error: 'User account not found.' });
+  if (!viewer || !STAFF_ROLES.has(viewer.role)) {
+    res.status(403).json({ error: 'AI recommendation is restricted to admin and authority accounts.' });
     return null;
   }
   return viewer;
@@ -29,7 +28,7 @@ async function requireViewer(req, res) {
 // POST /api/ai/leaves/:id/analyze — runs (or re-runs) the AI review and caches it on the leave.
 exports.analyzeLeave = async (req, res, next) => {
   try {
-    const viewer = await requireViewer(req, res);
+    const viewer = await requireAdminViewer(req, res);
     if (!viewer) return;
 
     const leave = await Leave.findOne({ id: req.params.id });
@@ -98,7 +97,7 @@ exports.analyzeLeave = async (req, res, next) => {
 // GET /api/ai/leaves/:id?viewerId=... — returns the cached review, if any, without recomputing.
 exports.getLeaveReview = async (req, res, next) => {
   try {
-    const viewer = await requireViewer(req, res);
+    const viewer = await requireAdminViewer(req, res);
     if (!viewer) return;
 
     const leave = await Leave.findOne({ id: req.params.id }, { aiReview: 1, _id: 0 });

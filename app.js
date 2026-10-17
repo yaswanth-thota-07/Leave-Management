@@ -639,7 +639,7 @@
       </div>
       ${paper(l)}
       ${attachments(l)}
-      ${aiPanelHTML(l)}
+      ${me.role !== 'STUDENT' ? aiPanelHTML(l) : ''}
       ${actionable ? `<form data-form="decide" data-id="${l.id}" novalidate class="decide">
         <label class="field"><span>Note</span><textarea name="note" placeholder="Required when rejecting"></textarea></label>
         <div class="dlg-err"></div>
@@ -652,7 +652,7 @@
     </div>`;
     if (!dialog.open) dialog.showModal();
     dialog.scrollTop = 0;
-    if (!l.aiReview) {
+    if (me.role !== 'STUDENT' && !l.aiReview) {
       setTimeout(() => actions.runAiAnalysis(l.id), 50);
     }
   }
@@ -1167,6 +1167,7 @@
     openDoc: el => docDialog(el.dataset.id),
     closeDialog: () => dialog?.close(),
     runAiAnalysis: async el => {
+      if (me.role === 'STUDENT') return;
       const id = typeof el === 'string' ? el : el?.dataset?.id;
       if (!id) return;
       const box = $('#aiPanel');
