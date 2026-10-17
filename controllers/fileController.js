@@ -1,11 +1,12 @@
 const FileDoc = require('../models/FileDoc');
+const { hashBase64DataUrl } = require('../utils/duplicateCheck');
 
 // POST /api/files
 exports.uploadFile = async (req, res, next) => {
   try {
     const { id, name, type, size, data } = req.body;
     if (!id || !name || !data) return res.status(400).json({ error: 'Missing file payload' });
-    const newFile = new FileDoc({ id, name, type, size, data });
+    const newFile = new FileDoc({ id, name, type, size, data, hash: hashBase64DataUrl(data) });
     await newFile.save();
     res.json({ success: true, id });
   } catch (err) {

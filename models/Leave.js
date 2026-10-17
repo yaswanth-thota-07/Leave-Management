@@ -30,6 +30,9 @@ const leaveSchema = new mongoose.Schema({
   signature: { type: String, default: 'VERIFIED' },
   docs: { type: Array, default: [] },
   snapshot: { type: Object, default: {} },
+  // Staff-only AI review (document authenticity signal + approval recommendation).
+  // Never serialized to the student-facing views in app.js — see docDialog().
+  aiReview: { type: Object, default: null },
   status: { type: String, default: 'PENDING_CLASS_TEACHER' },
   createdAt: { type: Number, default: () => Date.now() },
   approvals: [approvalSchema]

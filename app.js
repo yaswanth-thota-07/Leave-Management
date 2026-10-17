@@ -458,12 +458,19 @@
           <div class="brand"><span class="dots">${dots()}</span><span class="name">DLMS</span></div>
           <div class="art" aria-hidden="true">
             <i class="pillar" style="left:60px;top:0;height:320px"></i><i class="pillar" style="left:150px;top:40px;height:120px;opacity:.8"></i>
-            <i class="ring" style="left:44px;top:110px;width:160px;height:160px"></i>
-            <i class="orb" style="left:70px;top:136px;width:110px;height:110px"></i><i class="orb" style="left:0;top:40px;width:50px;height:50px"></i><i class="orb" style="left:170px;top:0;width:24px;height:24px"></i>
+            <i class="ring" data-floater style="left:44px;top:110px;width:160px;height:160px;--dur:10s;--delay:0s;--rot:0deg"></i>
+            <i class="orb" data-floater style="left:70px;top:136px;width:110px;height:110px;--dur:7s;--delay:.2s;--rot:6deg"></i><i class="orb" data-floater style="left:0;top:40px;width:50px;height:50px;--dur:6s;--delay:.6s;--rot:-10deg"></i><i class="orb" data-floater style="left:170px;top:0;width:24px;height:24px;--dur:5s;--delay:1s;--rot:14deg"></i>
           </div>
           <div>
             <div class="chips"><span class="chip dark">Hostel leave</span><span class="chip">Academic outpass</span><span class="chip">Gate verification</span></div>
             <h1>Digital Leave<br>Management</h1>
+          </div>
+          <div class="orbit" aria-hidden="true" title="Drag me">
+            <span class="floater" data-floater style="--dur:6.5s;--delay:.1s;--rot:-6deg"><span class="ms">task_alt</span>Recommended</span>
+            <span class="floater" data-floater style="--dur:7.4s;--delay:.5s;--rot:5deg"><span class="ms">verified</span>Gate verified</span>
+            <span class="floater avatar" data-floater style="--dur:8.2s;--delay:.2s;--rot:8deg;background:#4285f4">RS</span>
+            <span class="floater" data-floater style="--dur:7s;--delay:.9s;--rot:-4deg"><span class="ms">schedule</span>2-day leave</span>
+            <span class="floater" data-floater style="--dur:6.8s;--delay:1.3s;--rot:6deg"><span class="ms">badge</span>#250361</span>
           </div>
           <div class="flow">
             <span>Student</span><span class="ms">chevron_right</span><span>Class Teacher</span><span class="ms">chevron_right</span><span>Warden</span><span class="ms">chevron_right</span><span>HOD</span><span class="ms">chevron_right</span><span>JD</span><span class="ms">chevron_right</span><span>Director</span><span class="ms">chevron_right</span><span>Gate</span>
@@ -563,6 +570,59 @@
       <button class="doc" data-action="openFile" data-id="${d.id}" data-name="${esc(d.name)}"><span class="ms">${d.type.startsWith('image/') ? 'image' : 'picture_as_pdf'}</span><span><b>${esc(d.name)}</b><small>${kb(d.size)}</small></span></button>`).join('')}</div>`;
   }
 
+  /* ================= staff-only AI review (never rendered for STUDENT, see docDialog) ================= */
+  const AI_TAG_LABEL = {
+    ATTENDANCE_CRITICAL: 'Attendance below 65%', ATTENDANCE_LOW: 'Attendance below 75%',
+    ACADEMIC_CRITICAL: 'Last semester score below 50%', ACADEMIC_LOW: 'Last semester score below 60%',
+    LONG_DURATION: 'Leave longer than 7 days', MEDIUM_DURATION: 'Leave of 3–7 days',
+    FREQUENT_LEAVE_TAKER: '4+ other leave requests on record', DOC_FLAGGED: 'Document possibly AI-generated',
+    DOC_REUSED: 'Document also submitted by another student',
+    OPPORTUNITY_HACKATHON: 'Hackathon / competitive event', OPPORTUNITY_SSB: 'SSB / defence selection process',
+    OPPORTUNITY_PLACEMENT: 'Placement / internship opportunity',
+  };
+  const AI_VERDICT_LABEL = { APPROVE: 'Looks fine to approve', APPROVE_WITH_CAUTION: 'Approve with caution', NEEDS_REVIEW: 'Needs closer review' };
+  const aiVerdictClass = v => v === 'NEEDS_REVIEW' ? 'danger' : v === 'APPROVE_WITH_CAUTION' ? 'warn' : 'ok';
+
+  function aiPanelHTML(l) {
+    const review = l.aiReview;
+    if (!review) {
+      return `<div class="ai-panel" id="aiPanel">
+        <div class="ai-head"><span class="ms">smart_toy</span><b>AI recommendation</b></div>
+        <div class="ai-loading" style="padding:16px 0;display:flex;align-items:center;gap:10px;color:var(--ink-muted)"><span class="ms spin" style="animation:spin 1s linear infinite">progress_activity</span> Analyzing application…</div>
+      </div>`;
+    }
+    const docRows = (review.docFlags || []).map(d => {
+      const reuseBadge = d.reuse?.crossStudent?.length
+        ? ` <span class="ai-tag danger">Reused by other student</span>`
+        : d.reuse?.sameStudent?.length ? ` <span class="ai-tag warn">Previously submitted document</span>` : '';
+      if (!d.checked) return `<div class="ai-doc"><span class="ms">description</span><div><b>${esc(d.name)}</b>${reuseBadge}</div></div>`;
+      const cls = d.verdict === 'LIKELY_AI' ? 'danger' : d.verdict === 'UNCERTAIN' ? 'warn' : 'ok';
+      const label = d.verdict === 'LIKELY_AI' ? 'Likely AI' : d.verdict === 'UNCERTAIN' ? 'Uncertain' : 'Verified Genuine';
+      return `<div class="ai-doc"><span class="ms">${d.verdict === 'LIKELY_AI' ? 'report' : 'image'}</span><div><b>${esc(d.name)}</b> <span class="ai-tag ${cls}">${label} · ${d.suspicion}%</span>${reuseBadge}</div></div>`;
+    }).join('');
+    const r = review.recommendation || {};
+    const vcls = aiVerdictClass(r.verdict);
+    let pointsHTML = '';
+    if (Array.isArray(r.points) && r.points.length) {
+      pointsHTML = `<ul class="ai-points">${r.points.map(pt => `<li>${esc(pt.replace(/^[•\-\*]\s*/, ''))}</li>`).join('')}</ul>`;
+    } else if (r.narrative) {
+      const pts = r.narrative.split(/\n+/).map(p => p.trim().replace(/^[•\-\*]\s*/, '')).filter(Boolean);
+      pointsHTML = `<ul class="ai-points">${pts.map(pt => `<li>${esc(pt)}</li>`).join('')}</ul>`;
+    } else {
+      pointsHTML = `<p class="muted">${r.llmError ? 'Written points unavailable (' + esc(r.llmError) + ').' : 'Generating recommendation...'} Showing the rule-based score only.</p>`;
+    }
+    return `<div class="ai-panel" id="aiPanel">
+      <div class="ai-head"><span class="ms">smart_toy</span><b>AI recommendation</b>
+        <button class="icon-btn" type="button" data-action="runAiAnalysis" data-id="${l.id}" title="Re-run"><span class="ms">refresh</span></button>
+      </div>
+      ${docRows ? `<div class="ai-docs">${docRows}</div>` : '<p class="muted">No documents attached.</p>'}
+      <div class="ai-reco ${vcls}">
+        <div class="ai-reco-head"><span class="ai-tag ${vcls}">${AI_VERDICT_LABEL[r.verdict] || r.verdict || '—'}</span>${(r.tags || []).map(t => `<span class="ai-pill">${esc(AI_TAG_LABEL[t] || t)}</span>`).join('')}</div>
+        ${pointsHTML}
+      </div>
+    </div>`;
+  }
+
   function docDialog(id) {
     const l = db.leaves.find(x => x.id === id);
     if (!l) return;
@@ -579,6 +639,7 @@
       </div>
       ${paper(l)}
       ${attachments(l)}
+      ${aiPanelHTML(l)}
       ${actionable ? `<form data-form="decide" data-id="${l.id}" novalidate class="decide">
         <label class="field"><span>Note</span><textarea name="note" placeholder="Required when rejecting"></textarea></label>
         <div class="dlg-err"></div>
@@ -591,6 +652,9 @@
     </div>`;
     if (!dialog.open) dialog.showModal();
     dialog.scrollTop = 0;
+    if (!l.aiReview) {
+      setTimeout(() => actions.runAiAnalysis(l.id), 50);
+    }
   }
 
   /* ================= student ================= */
@@ -1102,6 +1166,23 @@
     },
     openDoc: el => docDialog(el.dataset.id),
     closeDialog: () => dialog?.close(),
+    runAiAnalysis: async el => {
+      const id = typeof el === 'string' ? el : el?.dataset?.id;
+      if (!id) return;
+      const box = $('#aiPanel');
+      if (box) box.innerHTML = `<div class="ai-head"><span class="ms">smart_toy</span><b>AI recommendation</b></div><div class="ai-loading" style="padding:16px 0;display:flex;align-items:center;gap:10px;color:var(--ink-muted)"><span class="ms spin" style="animation:spin 1s linear infinite">progress_activity</span>Analyzing application…</div>`;
+      const res = await api(`/api/ai/leaves/${id}/analyze`, 'POST', { viewerId: me.id });
+      const l = db.leaves.find(x => x.id === id);
+      if (res._failed) {
+        if (box) box.innerHTML = `<div class="ai-head"><span class="ms">smart_toy</span><b>AI insights</b></div><p class="muted">Couldn’t run AI analysis: ${esc(res.error || 'server unavailable')}.</p><button class="btn tonal" type="button" data-action="runAiAnalysis" data-id="${id}">Try again</button>`;
+        return;
+      }
+      if (l) {
+        l.aiReview = res.aiReview;
+        save();
+      }
+      if (box) box.outerHTML = aiPanelHTML(l || { id, aiReview: res.aiReview });
+    },
     withdraw: async el => {
       if (!confirm('Withdraw this application?')) return;
       db = load();
@@ -1440,6 +1521,29 @@
   });
   if (dialog) dialog.addEventListener('click', e => { if (e.target === dialog && !me?.mustChange) dialog.close(); });
   addEventListener('storage', e => { if (e.key === DB_KEY && !dialog?.open) render(); });
+
+  /* ================= movable login decorations (Pinterest-style drag) ================= */
+  (() => {
+    const num = v => { const n = parseFloat(v); return Number.isFinite(n) ? n : 0; };
+    let dragEl = null, startX = 0, startY = 0, baseLeft = 0, baseTop = 0;
+    app?.addEventListener('pointerdown', e => {
+      const t = e.target.closest('[data-floater]');
+      if (!t) return;
+      dragEl = t; startX = e.clientX; startY = e.clientY;
+      const cs = getComputedStyle(t);
+      baseLeft = num(cs.left); baseTop = num(cs.top);
+      t.classList.add('dragging');
+      t.setPointerCapture?.(e.pointerId);
+    });
+    app?.addEventListener('pointermove', e => {
+      if (!dragEl) return;
+      dragEl.style.left = (baseLeft + (e.clientX - startX)) + 'px';
+      dragEl.style.top = (baseTop + (e.clientY - startY)) + 'px';
+    });
+    const releaseDrag = () => { if (dragEl) { dragEl.classList.remove('dragging'); dragEl = null; } };
+    app?.addEventListener('pointerup', releaseDrag);
+    app?.addEventListener('pointercancel', releaseDrag);
+  })();
 
   /* ================= boot ================= */
   async function init() {

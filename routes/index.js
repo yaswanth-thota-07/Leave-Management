@@ -7,6 +7,7 @@ const userRoutes = require('./userRoutes');
 const departmentRoutes = require('./departmentRoutes');
 const hostelRoutes = require('./hostelRoutes');
 const fileRoutes = require('./fileRoutes');
+const aiRoutes = require('./aiRoutes');
 const bootstrapController = require('../controllers/bootstrapController');
 
 // System endpoints
@@ -21,5 +22,6 @@ router.use('/users', userRoutes);
 router.use('/departments', departmentRoutes);
 router.use('/hostels', hostelRoutes);
 router.use('/files', fileRoutes);
+router.use('/ai', aiRoutes);
 
 module.exports = router;
