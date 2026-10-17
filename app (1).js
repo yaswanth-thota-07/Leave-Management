@@ -285,26 +285,30 @@
   const onLeaveNow = l => l.status === 'APPROVED' && l.fromAt <= now() && l.toAt >= now();
   const waitingFor = l => isPending(l) ? STAGES[stageIndex(l.status.slice(8))].label : '';
 
-  // Teachers only see their own work (Completed / Rejected / Needs Action) and never "Pending"
+  const AUTHORITY_ROLES = ['CLASS_TEACHER', 'WARDEN', 'HOD', 'JD', 'DIRECTOR'];
+
+  // Authorities only see their own work (Completed / Rejected / Needs Action) and never generic "Pending"
   const statusText = (l, forRole = me?.role) => {
-    if (forRole === 'CLASS_TEACHER') {
-      const ctApp = l.approvals?.[0];
-      if (ctApp?.decision === 'APPROVED') return 'Completed';
-      if (ctApp?.decision === 'REJECTED') return 'Rejected';
+    if (AUTHORITY_ROLES.includes(forRole)) {
+      const sIdx = stageIndex(forRole);
+      const myApp = l.approvals?.[sIdx];
+      if (myApp?.decision === 'APPROVED') return 'Completed';
+      if (myApp?.decision === 'REJECTED') return 'Rejected';
       if (l.status === 'CANCELLED') return 'Withdrawn';
-      if (l.status === 'PENDING_CLASS_TEACHER') return 'Needs Action';
+      if (l.status === 'PENDING_' + forRole) return 'Needs Action';
       return 'Completed';
     }
     return isPending(l) ? `Pending · ${waitingFor(l)}` : l.status === 'CANCELLED' ? 'Withdrawn' : l.status[0] + l.status.slice(1).toLowerCase();
   };
 
   const statusClass = (l, forRole = me?.role) => {
-    if (forRole === 'CLASS_TEACHER') {
-      const ctApp = l.approvals?.[0];
-      if (ctApp?.decision === 'APPROVED') return 'APPROVED';
-      if (ctApp?.decision === 'REJECTED') return 'REJECTED';
+    if (AUTHORITY_ROLES.includes(forRole)) {
+      const sIdx = stageIndex(forRole);
+      const myApp = l.approvals?.[sIdx];
+      if (myApp?.decision === 'APPROVED') return 'APPROVED';
+      if (myApp?.decision === 'REJECTED') return 'REJECTED';
       if (l.status === 'CANCELLED') return 'CANCELLED';
-      if (l.status === 'PENDING_CLASS_TEACHER') return 'PENDING';
+      if (l.status === 'PENDING_' + forRole) return 'PENDING';
       return 'APPROVED';
     }
     return isPending(l) ? 'PENDING' : l.status;
@@ -314,12 +318,41 @@
   function canSee(u, l) {
     const p = student(l)?.profile;
     if (!p) return false;
+    if (u.role === 'ADMIN' || u.role === 'GATE') return true;
+
+    // Check scope first
+    let inScope = false;
     switch (u.role) {
-      case 'CLASS_TEACHER': return u.scope?.year === p.year && u.scope?.departmentId === p.departmentId && u.scope?.section === p.section;
-      case 'HOD': return u.scope?.departmentId === p.departmentId;
-      case 'WARDEN': case 'JD': case 'DIRECTOR': case 'ADMIN': return true;
-      default: return false;
+      case 'CLASS_TEACHER':
+        inScope = (!u.scope?.year || u.scope.year === p.year) &&
+                  (!u.scope?.departmentId || u.scope.departmentId === p.departmentId) &&
+                  (!u.scope?.section || u.scope.section === p.section);
+        break;
+      case 'WARDEN':
+        inScope = !u.scope?.hostelId || u.scope.hostelId === l.hostelId;
+        break;
+      case 'HOD':
+        inScope = !u.scope?.departmentId || u.scope.departmentId === p.departmentId;
+        break;
+      case 'JD':
+      case 'DIRECTOR':
+        inScope = true;
+        break;
+      default:
+        return false;
     }
+    if (!inScope) return false;
+
+    // Sequential workflow rule:
+    // Higher authorities (Warden, HOD, JD, Director) must NOT see a request
+    // until ALL prior stages have approved it (e.g. if Class Teacher is pending, Warden/HOD/JD/Director must not see it)
+    const sIdx = stageIndex(u.role);
+    if (sIdx > 0) {
+      for (let k = 0; k < sIdx; k++) {
+        if (l.approvals?.[k]?.decision !== 'APPROVED') return false;
+      }
+    }
+    return true;
   }
 
   // who may ACT on a request (stage + scope)
@@ -681,13 +714,14 @@
     if (hostelFilterRoles.includes(me.role) && ui.deptF) visible = visible.filter(l => student(l)?.profile?.departmentId === ui.deptF);
     visible.sort((a, b) => b.createdAt - a.createdAt);
 
-    const isTeacher = me.role === 'CLASS_TEACHER';
-    if (isTeacher && ui.view === 'pending') ui.view = 'action';
+    const isAuthority = AUTHORITY_ROLES.includes(me.role);
+    const sIdx = stageIndex(me.role);
+    if (isAuthority && ui.view === 'pending') ui.view = 'action';
 
-    const sets = isTeacher ? {
+    const sets = isAuthority ? {
       action: (db?.leaves || []).filter(l => canAct(me, l)).sort((a, b) => a.fromAt - b.fromAt),
-      completed: visible.filter(l => l.approvals?.[0]?.decision === 'APPROVED'),
-      rejected: visible.filter(l => l.approvals?.[0]?.decision === 'REJECTED'),
+      completed: visible.filter(l => l.approvals?.[sIdx]?.decision === 'APPROVED'),
+      rejected: visible.filter(l => l.approvals?.[sIdx]?.decision === 'REJECTED'),
       active: visible.filter(onLeaveNow),
       all: visible,
     } : {
@@ -699,7 +733,7 @@
       all: visible,
     };
 
-    const items = isTeacher ? [
+    const items = isAuthority ? [
       { key: 'action', icon: 'pending_actions', label: 'Needs my action', count: sets.action.length },
       { key: 'completed', icon: 'task_alt', label: 'Completed', count: sets.completed.length },
       { key: 'rejected', icon: 'cancel', label: 'Rejected', count: sets.rejected.length },
@@ -724,7 +758,7 @@
     if (me.role === 'HOD') filters.push(`<label class="field"><span>Year</span><select data-change="yearF">${options(YEARS.map(y => [y, y]), ui.yearF, 'All years')}</select></label>`);
     if (['HOD', 'WARDEN', 'JD', 'DIRECTOR'].includes(me.role)) filters.push(`<label class="field"><span>Section</span><select data-change="sectionF">${options(SECTIONS.map(s => [s, s]), ui.sectionF, 'All')}</select></label>`);
 
-    const statsHtml = isTeacher ? `
+    const statsHtml = isAuthority ? `
       <div class="stats">
         <div class="stat glass"><small><span class="ms">pending_actions</span>Needs my action</small><strong>${sets.action.length}</strong></div>
         <div class="stat glass"><small><span class="ms">task_alt</span>Completed</small><strong>${sets.completed.length}</strong></div>
